@@ -65,20 +65,60 @@ def count_csv_rows_fast(csv_path):
     return max(line_count - 1, 0)
 
 
-def infer_traffic_level(path):
+def normalize_file_name(path):
+    """
+    Normalize file names so small differences like '-' vs '_' do not matter.
+    Example:
+    DDoS-HTTP_Flood-.csv              -> ddos_http_flood
+    DDoS-HTTP_Flood-.pcap_Flow.csv    -> ddos_http_flood
+    BenignTraffic.pcap_Flow.csv       -> benigntraffic
+    """
     name = path.name.lower()
-    if "pcap_flow" in name or name.endswith("_flow.csv") or "flow" in name:
+    name = name.replace(".pcap_flow.csv", "")
+    name = name.replace(".csv", "")
+    name = name.replace("-", "_")
+    name = name.replace(" ", "_")
+
+    while "__" in name:
+        name = name.replace("__", "_")
+
+    return name.strip("_")
+
+
+def infer_traffic_level(path):
+    """
+    In this dataset:
+    files ending with .pcap_Flow.csv are flow-level files.
+    files without .pcap_Flow are packet-level files.
+    """
+    name = path.name.lower()
+
+    if name.endswith(".pcap_flow.csv"):
         return "flow-level"
+
     return "packet-level"
 
 
 def infer_attack_type(path):
-    text = " ".join([p.lower() for p in path.parts])
-    text = text.replace(" ", "_")
+    name = normalize_file_name(path)
 
-    for pattern, label in ATTACK_PATTERNS:
-        if pattern in text:
-            return label
+    if "benign" in name:
+        return "Benign"
+
+    if "ddos" in name and "http" in name and "flood" in name:
+        return "DDoS-HTTP Flood"
+
+    if name.startswith("dos") and "http" in name and "flood" in name:
+        return "DoS-HTTP Flood"
+
+    if "dns" in name and "spoofing" in name:
+        return "DNS Spoofing"
+
+    if "dictionarybruteforce" in name or "bruteforce" in name or "brute_force" in name:
+        return "Brute Force"
+
+    if "xss" in name:
+        return "XSS"
 
     return "Unknown"
 
@@ -289,6 +329,38 @@ def write_text_report(all_details, schema_comparison, output_path):
 
     output_path.write_text("\n".join(lines), encoding="utf-8")
 
+def validate_expected_files(all_details):
+    expected_attack_types = {
+        "Benign",
+        "DDoS-HTTP Flood",
+        "DoS-HTTP Flood",
+        "DNS Spoofing",
+        "XSS",
+        "Brute Force",
+    }
+
+    for level in ["packet-level", "flow-level"]:
+        found = {
+            item["attack_type"]
+            for item in all_details
+            if item["traffic_level"] == level
+        }
+
+        missing = expected_attack_types - found
+        extra = found - expected_attack_types
+
+        print(f"\nValidation for {level}:")
+        print(f"  Found: {sorted(found)}")
+
+        if missing:
+            print(f"  Missing: {sorted(missing)}")
+        else:
+            print("  Missing: None")
+
+        if extra:
+            print(f"  Extra/unknown: {sorted(extra)}")
+        else:
+            print("  Extra/unknown: None")
 
 def main():
     parser = argparse.ArgumentParser()
@@ -411,6 +483,9 @@ def main():
     print(f"Saved details JSON: {details_json_path}")
     print(f"Saved schema JSON: {schema_json_path}")
     print(f"Saved text report: {text_report_path}")
+
+    schema_comparison = build_schema_comparison(all_details)
+    validate_expected_files(all_details)
 
 
 if __name__ == "__main__":
