@@ -6,7 +6,7 @@ Samples the packet-level dataset randomly:
 
 ```bash
 python scripts/generate_random_packet_sample.py \
-  --data-dir data \
+  --data-dir data/raw \
   --output-path data/samples/test_packet_sample.csv \
   --benign-rows 1000 \
   --attack-min 100 \
