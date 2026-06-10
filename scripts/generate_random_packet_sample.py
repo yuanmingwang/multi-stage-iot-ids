@@ -11,7 +11,7 @@ from src.data.sampling import generate_random_packet_dataset
 def main():
     parser = argparse.ArgumentParser()
 
-    parser.add_argument("--data-dir", default="data")
+    parser.add_argument("--data-dir", default="data/raw")
     parser.add_argument("--output-path", default="data/samples/packet_sample.csv")
     parser.add_argument("--benign-rows", type=int, default=200000)
     parser.add_argument("--attack-min", type=int, default=4000)

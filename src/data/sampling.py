@@ -51,13 +51,13 @@ def sample_one_file(file_path, n_rows, attack_type, seed=None):
 
 
 def generate_random_packet_dataset(
-    data_dir="data",
+    data_dir="data/raw",
     output_path="data/samples/packet_sample.csv",
     benign_rows=200000,
     attack_min_rows=4000,
     attack_max_rows=6200,
     min_attack_each=200,
-    seed=None,
+    seed=1,
 ):
     """
     Generate the Task 1.1 random packet-level dataset.
