@@ -1,63 +1,67 @@
 import numpy as np
 import pandas as pd
+from pathlib import Path
+import json
 
 
-ATTACK_TYPES = [
-    "DDoS-HTTP Flood",
-    "DoS-HTTP Flood",
-    "DNS Spoofing",
-    "Brute Force",
-    "XSS",
-]
+ATTACK_FILES = {
+    "DDoS-HTTP Flood": "DDoS-HTTP_Flood-.csv",
+    "DoS-HTTP Flood": "DoS-HTTP_Flood.csv",
+    "DNS Spoofing": "DNS_Spoofing.csv",
+    "Brute Force": "DictionaryBruteForce.csv",
+    "XSS": "XSS.csv",
+}
 
-EXPECTED_PACKET_TYPES = ["Benign"] + ATTACK_TYPES
-
-@dataclass
-class SamplingConfig:
-    benign_rows: int = 200_000
-    attack_min_rows: int = 4_000
-    attack_max_rows: int = 6_200
-    min_rows_per_attack: int = 200
-    seed: int | None = None
-    chunksize: int = 50_000
-
-def normalize_file_name(path: Path) -> str:
-    name = path.name.lower()
-    name = name.replace(".pcap_flow.csv", "")
-    name = name.replace(".csv", "")
-    name = name.replace("-", "_")
-    name = name.replace(" ", "_")
-
-    while "__" in name:
-        name = name.replace("__", "_")
-
-    return name.strip("_")
-
-def infer_traffic_level(path: Path) -> str:
-    if path.name.lower().endswith(".pcap_flow.csv"):
-        return "flow-level"
-    return "packet-level"
+BENIGN_FILE = "BenignTraffic.csv"
 
 
-def infer_attack_type(path: Path) -> str:
-    name = normalize_file_name(path)
+def sample_one_file(file_path, n_rows, attack_type, seed=None):
+    """
+    Read one CSV file and randomly sample n_rows from it.
+    """
+    df = pd.read_csv(file_path, low_memory=False)
 
-    if "benign" in name:
-        return "Benign"
+    sample_df = df.sample(n=n_rows, random_state=seed).copy()
 
-    if "ddos" in name and "http" in name and "flood" in name:
-        return "DDoS-HTTP Flood"
+    sample_df["attack_type"] = attack_type
+    sample_df["binary_label"] = "benign" if attack_type == "Benign" else "attack"
+    sample_df["source_file"] = file_path.name
 
-    if name.startswith("dos") and "http" in name and "flood" in name:
-        return "DoS-HTTP Flood"
+    return sample_df
 
-    if "dns" in name and "spoofing" in name:
-        return "DNS Spoofing"
 
-    if "dictionarybruteforce" in name or "bruteforce" in name or "brute_force" in name:
-        return "Brute Force"
+def generate_random_packet_dataset(
+    data_dir="data",
+    output_path="data/samples/packet_sample.csv",
+    benign_rows=200,
+    attack_min_rows=4000,
+    attack_max_rows=6200,
+    seed=None,
+):
+    data_dir = Path(data_dir)
+    output_path = Path(output_path)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    if "xss" in name:
-        return "XSS"
+    rng = np.random.default_rng(seed)
 
-    return "Unknown"
+    all_samples = []
+
+    benign_path = data_dir / BENIGN_FILE
+    print(f"Sampling {benign_rows} rows from {BENIGN_FILE}")
+
+    benign_sample = sample_one_file(
+        file_path=benign_path,
+        n_rows=benign_rows,
+        attack_type="Benign",
+        seed=seed,
+    )
+
+    all_samples.append(benign_sample)
+
+    final_df = pd.concat(all_samples, ignore_index=True)
+    final_df.to_csv(output_path, index=False)
+
+
+
+if __name__ == "__main__":
+    generate_random_packet_dataset(seed=1)
