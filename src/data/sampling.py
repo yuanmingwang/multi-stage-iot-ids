@@ -116,8 +116,31 @@ def generate_random_packet_dataset(
 
     final_df.to_csv(output_path, index=False)
 
+    metadata = {
+        "output_path": str(output_path),
+        "seed": seed,
+        "benign_rows": int(benign_rows),
+        "total_attack_rows": int(total_attack_rows),
+        "attack_counts": {k: int(v) for k, v in attack_counts.items()},
+        "total_rows": int(len(final_df)),
+        "binary_counts": {
+            k: int(v)
+            for k, v in final_df["binary_label"].value_counts().to_dict().items()
+        },
+        "attack_type_counts": {
+            k: int(v)
+            for k, v in final_df["attack_type"].value_counts().to_dict().items()
+        },
+    }
+
+    metadata_path = output_path.with_suffix(".metadata.json")
+
+    with open(metadata_path, "w") as f:
+        json.dump(metadata, f, indent=2)
+
     print("\nSampling finished.")
     print(f"Saved dataset to: {output_path}")
+    print(f"Saved metadata to: {metadata_path}")
     print("\nClass counts:")
     print(final_df["attack_type"].value_counts())
 
@@ -125,4 +148,4 @@ def generate_random_packet_dataset(
 
 
 if __name__ == "__main__":
-    generate_random_packet_dataset(seed=42)
+    generate_random_packet_dataset(seed=1)
