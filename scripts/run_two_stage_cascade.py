@@ -278,24 +278,25 @@ def train_phase3_xgboost(flow_dir: Path, seed=1):
     X_train = train_df[feature_cols]
     y_train = train_df[TARGET_COL].to_numpy()
 
-    neg = int((y_train == 0).sum())
-    pos = int((y_train == 1).sum())
-    scale_pos_weight = neg / max(pos, 1)
-
     best_path = PROJECT_ROOT / "reports" / "phase3" / "xgboost_best_parameters.json"
+    threshold = 0.5
     if best_path.exists():
-        best_params = json.loads(best_path.read_text())["best_params"]
+        saved = json.loads(best_path.read_text())
+        best_params = saved.get("best_params", {})
         model_params = {k.replace("model__", ""): v for k, v in best_params.items()}
+        threshold = float(saved.get("classification_threshold", 0.5))
     else:
+        # Mild default; full n_neg/n_pos over-emphasizes recall and hurts F1.
         model_params = {
-            "n_estimators": 300,
-            "max_depth": 8,
-            "learning_rate": 0.05,
-            "subsample": 1.0,
-            "colsample_bytree": 0.7,
+            "n_estimators": 500,
+            "max_depth": 6,
+            "learning_rate": 0.08,
+            "subsample": 0.85,
+            "colsample_bytree": 0.9,
             "min_child_weight": 3,
-            "reg_lambda": 0.5,
+            "reg_lambda": 5.0,
             "gamma": 0.0,
+            "scale_pos_weight": 1.0,
         }
 
     pipeline = Pipeline(
@@ -307,7 +308,6 @@ def train_phase3_xgboost(flow_dir: Path, seed=1):
                     objective="binary:logistic",
                     eval_metric="aucpr",
                     tree_method="hist",
-                    scale_pos_weight=scale_pos_weight,
                     random_state=seed,
                     n_jobs=-1,
                     **model_params,
@@ -319,7 +319,7 @@ def train_phase3_xgboost(flow_dir: Path, seed=1):
     start = time.perf_counter()
     pipeline.fit(X_train, y_train)
     train_time = time.perf_counter() - start
-    return pipeline, feature_cols, train_time, model_params
+    return pipeline, feature_cols, train_time, model_params, threshold
 
 
 def per_attack_detection(packet_df, idx, y_true, y_pred):
@@ -350,7 +350,12 @@ def main():
     parser.add_argument("--flow-processed-dir", default="data/processed/phase3")
     parser.add_argument("--output-dir", default="reports/cascade")
     parser.add_argument("--seed", type=int, default=1)
-    parser.add_argument("--phase3-threshold", type=float, default=0.5)
+    parser.add_argument(
+        "--phase3-threshold",
+        type=float,
+        default=None,
+        help="Attack probability threshold. Default: value from xgboost_best_parameters.json if present, else 0.5.",
+    )
     args = parser.parse_args()
 
     output_dir = Path(args.output_dir)
@@ -377,9 +382,11 @@ def main():
     print("Phase 2 test:", {k: p2_test[k] for k in ["precision", "recall", "f1", "fpr", "fp", "tp"]})
 
     print("Training Phase 3 XGBoost on flow splits...")
-    xgb_pipeline, feature_cols, p3_train_time, model_params = train_phase3_xgboost(
+    xgb_pipeline, feature_cols, p3_train_time, model_params, saved_threshold = train_phase3_xgboost(
         Path(args.flow_processed_dir), seed=args.seed
     )
+    phase3_threshold = args.phase3_threshold if args.phase3_threshold is not None else saved_threshold
+    print(f"Phase 3 decision threshold: {phase3_threshold:.4f}")
 
     test_idx = phase2["test_idx"]
     test_packets = packet_df.iloc[test_idx].copy().reset_index(drop=True)
@@ -414,7 +421,7 @@ def main():
             index=X_linked.index,
             name="phase3_proba",
         )
-        flow_pred = (flow_proba >= args.phase3_threshold).astype(int)
+        flow_pred = (flow_proba >= phase3_threshold).astype(int)
     else:
         flow_proba = pd.Series(dtype=float)
         flow_pred = pd.Series(dtype=int)
@@ -473,7 +480,7 @@ def main():
         "phase2_train_time_sec": phase2["train_time"],
         "phase3_train_time_sec": p3_train_time,
         "phase3_params": model_params,
-        "phase3_threshold": args.phase3_threshold,
+        "phase3_threshold": phase3_threshold,
         "flow_lookup_time_sec": lookup_time,
         "phase2_test_alerts": int(len(alerted)),
         "unique_candidate_flow_ids": len(candidate_ids),
@@ -523,7 +530,7 @@ def main():
             "phase2_threshold": phase2["threshold"],
             "phase3_pipeline": xgb_pipeline,
             "phase3_feature_cols": feature_cols,
-            "phase3_threshold": args.phase3_threshold,
+            "phase3_threshold": phase3_threshold,
         },
         output_dir / "cascade_models.joblib",
     )
