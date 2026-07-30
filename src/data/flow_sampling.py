@@ -14,7 +14,7 @@ ATTACK_FILE_NAMES = {
     "XSS": "XSS.pcap_Flow.csv",
 }
 
-BENIGN_FILE_NAME = "BenignTraffic.pcap_Flow.csv"
+BENIGN_FILE_PATTERN = "BenignTraffic*.pcap_Flow.csv"
 
 ID_COLUMNS = ["Flow ID", "Src IP", "Src Port", "Dst IP", "Dst Port", "Protocol"]
 
@@ -110,6 +110,31 @@ def _available_flow_ids(path, chunksize):
         flow_ids.update(values)
 
     return np.array(sorted(flow_ids), dtype=object)
+
+
+def _find_benign_paths(data_dir):
+    benign_paths = sorted(data_dir.glob(BENIGN_FILE_PATTERN))
+
+    if not benign_paths:
+        raise FileNotFoundError(f"No benign flow files matched {BENIGN_FILE_PATTERN} in {data_dir}")
+
+    return benign_paths
+
+
+def _allocate_file_counts(total_rows, capacities, rng):
+    paths = list(capacities)
+    total_capacity = sum(capacities.values())
+    total_rows = min(total_rows, total_capacity)
+
+    if total_rows == 0:
+        return {path: 0 for path in paths}
+
+    selected_positions = rng.choice(total_capacity, size=total_rows, replace=False)
+    boundaries = np.cumsum([capacities[path] for path in paths])
+    file_indices = np.searchsorted(boundaries, selected_positions, side="right")
+    counts = np.bincount(file_indices, minlength=len(paths))
+
+    return {path: int(count) for path, count in zip(paths, counts)}
 
 
 def _allocate_attack_counts(total_rows, minimum_each, capacities, rng):
@@ -289,36 +314,46 @@ def generate_random_flow_dataset(data_dir, output_path, benign_rows=200000, atta
         raise ValueError("attack_min_rows cannot be larger than attack_max_rows")
 
     rng = np.random.default_rng(seed)
-    benign_path = data_dir / BENIGN_FILE_NAME
+    benign_paths = _find_benign_paths(data_dir)
     attack_paths = {name: data_dir / file_name for name, file_name in ATTACK_FILE_NAMES.items()}
-    required_paths = [benign_path, *attack_paths.values()]
-    missing_paths = [str(path) for path in required_paths if not path.exists()]
+    missing_paths = [str(path) for path in attack_paths.values() if not path.exists()]
 
     if missing_paths:
         raise FileNotFoundError("Missing flow files:\n" + "\n".join(missing_paths))
 
     print("Scanning unique flow IDs...")
-    benign_ids = _available_flow_ids(benign_path, chunksize)
+    print("Benign files:", ", ".join(path.name for path in benign_paths))
+    benign_ids = {path: _available_flow_ids(path, chunksize) for path in benign_paths}
     attack_ids = {name: _available_flow_ids(path, chunksize) for name, path in attack_paths.items()}
 
-    actual_benign_rows = min(benign_rows, len(benign_ids))
+    benign_capacities = {path: len(ids) for path, ids in benign_ids.items()}
+    total_benign_capacity = sum(benign_capacities.values())
+    actual_benign_rows = min(benign_rows, total_benign_capacity)
+    benign_counts = _allocate_file_counts(actual_benign_rows, benign_capacities, rng)
 
     if actual_benign_rows < benign_rows:
         warnings.warn(
-            f"Requested {benign_rows:,} benign flows, but only {len(benign_ids):,} unique benign flows are available. "
-            f"Using all {actual_benign_rows:,} without replacement."
+            f"Requested {benign_rows:,} benign flows, but only {total_benign_capacity:,} unique benign flows "
+            f"are available across {len(benign_paths)} files. Using all available flows without replacement."
         )
 
     requested_attack_rows = int(rng.integers(attack_min_rows, attack_max_rows + 1))
     attack_capacities = {name: len(ids) for name, ids in attack_ids.items()}
     attack_counts = _allocate_attack_counts(requested_attack_rows, min_attack_each, attack_capacities, rng)
 
-    print(f"Sampling {actual_benign_rows:,} benign flows...")
     frames = []
     source_segment_counts = {}
-    benign_flows, benign_segments = _sample_file(benign_path, benign_ids, actual_benign_rows, rng, chunksize, "Benign")
-    frames.append(benign_flows)
-    source_segment_counts[benign_path.name] = benign_segments
+
+    for benign_path in benign_paths:
+        count = benign_counts[benign_path]
+
+        if count == 0:
+            continue
+
+        print(f"Sampling {count:,} benign flows from {benign_path.name}...")
+        benign_flows, benign_segments = _sample_file(benign_path, benign_ids[benign_path], count, rng, chunksize, "Benign")
+        frames.append(benign_flows)
+        source_segment_counts[benign_path.name] = benign_segments
 
     for attack_type, count in attack_counts.items():
         print(f"Sampling {count:,} {attack_type} flows...")
@@ -343,10 +378,13 @@ def generate_random_flow_dataset(data_dir, output_path, benign_rows=200000, atta
         "actual_attack_rows": int((dataset["binary_label"] == "attack").sum()),
         "attack_counts": {name: int(count) for name, count in dataset["attack_type"].value_counts().items() if name != "Benign"},
         "total_rows": len(dataset),
+        "benign_files": [path.name for path in benign_paths],
+        "benign_counts_by_file": {path.name: int(benign_counts[path]) for path in benign_paths},
         "available_unique_flows": {
-            "Benign": len(benign_ids),
+            "Benign": total_benign_capacity,
             **{name: len(ids) for name, ids in attack_ids.items()},
         },
+        "available_benign_flows_by_file": {path.name: len(benign_ids[path]) for path in benign_paths},
         "source_segment_counts": source_segment_counts,
         "segments_collapsed": int(sum(source_segment_counts.values()) - len(dataset)),
         "columns": list(dataset.columns),

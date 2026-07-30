@@ -64,6 +64,14 @@ Full Phase 3 generate random sample
 python scripts/generate_random_flow_sample.py \
     --output-path data/samples/flow_sample_seed1.csv \
     --seed 1
+
+python scripts/generate_random_flow_sample.py \
+    --output-path data/samples/flow_sample_seed1.csv \
+    --benign-rows 200000 \
+    --attack-min 4000 \
+    --attack-max 6200 \
+    --min-attack-each 200 \
+    --seed 1
 ```
 
 Data preprocessing 
