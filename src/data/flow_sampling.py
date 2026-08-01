@@ -15,6 +15,9 @@ ATTACK_FILE_NAMES = {
 }
 
 BENIGN_FILE_PATTERN = "BenignTraffic*.pcap_Flow.csv"
+# Single benign filename, kept for packet_flow_link.py (cascade) which looks up
+# raw flow files by exact name. The pattern above is used for multi-file sampling.
+BENIGN_FILE_NAME = "BenignTraffic.pcap_Flow.csv"
 
 ID_COLUMNS = ["Flow ID", "Src IP", "Src Port", "Dst IP", "Dst Port", "Protocol"]
 
