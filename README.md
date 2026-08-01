@@ -59,7 +59,7 @@ python scripts/generate_random_flow_sample.py \
     --seed 1
 ```
 
-Full Phase 3 generate random sample
+Full Phase 3 generate flow level random sample
 ```bash
 python scripts/generate_random_flow_sample.py \
     --output-path data/samples/flow_sample_seed1.csv \
@@ -74,6 +74,14 @@ python scripts/generate_random_flow_sample.py \
     --seed 1
 ```
 
+Full Phase 3 packet level data train test split
+```bash
+python scripts/prepare_packet_dataset.py \
+    --input-path data/samples/packet_sample_seed1.csv \
+    --output-dir data/processed/phase3_packet \
+    --seed 1
+```
+
 Data preprocessing 
 Test running
 ```bash
@@ -83,7 +91,7 @@ python scripts/prepare_flow_dataset.py \
     --seed 1
 ```
 
-Full Phase 3 data preprocessing
+Full Phase 3 flow level data preprocessing
 ```bash
 python scripts/prepare_flow_dataset.py \
     --input-path data/samples/flow_sample_seed1.csv \
