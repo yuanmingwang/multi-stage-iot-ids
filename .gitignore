@@ -4,11 +4,6 @@ __pycache__/
 .venv/
 venv/
 
-# Assignment PDF (keep local only)
-*.pdf
-ECE_597_CapstoneProject_Summer2026.pdf
-doc/ECE_597_CapstoneProject_Summer2026.pdf
-
 # Notebook execution artifacts
 notebooks/*.executed.ipynb
 notebooks/*.failed.ipynb
